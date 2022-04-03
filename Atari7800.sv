@@ -7,6 +7,8 @@
 // You should have received a copy of the license along with this
 // work. If not, see http://creativecommons.org/licenses/by-nc/4.0/.
 
+//LLAPI NOTE: 
+// llapi.sv needs to be in rtl folder and needs to be declared in file.qip (set_global_assignment -name SYSTEMVERILOG_FILE rtl/llapi.sv)
 module emu
 (
 	//Master input clock
@@ -161,7 +163,11 @@ module emu
 	input         OSD_STATUS
 );
 
-assign BUTTONS   = 0;
+//LLAPI
+//Remap OSD buttons to LLAPI specifc combinaison (see LLAPI main block)
+assign BUTTONS   = llapi_osd;
+//assign BUTTONS   = 0;
+//END 
 
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 
@@ -223,11 +229,14 @@ reg old_cart_download;
 // 0         1         2         3          4         5         6
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// XXXXXXXX XXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXX    XXXXXXXX
+// XXXXXXXX XXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXXXX  XXXXXXXX
 
 `include "build_id.v"
 parameter CONF_STR = {
 	"ATARI7800;;",
+	"rL,Game Reset button;", //LLAPI specific status [53]
+	"tK,Game Select button;", //LLAPI specific status [52]
+	"-;",											   
 	"FS1,A78A26BIN;",
 	"FC2,ROMBIN,Load BIOS;",
 	"-;",
@@ -254,8 +263,15 @@ parameter CONF_STR = {
 	"P2OIJ,High Score Cart,Auto,On,Off;",
 	"P2O7,Swap Joysticks,No,Yes;",
 	"P2-;",
-	"P2o69,Port1 Input,Auto,None,Joystick,Lightgun,Paddle,Trakball,Keypad,Driving,STMouse,AmigaMouse,BoosterGrip,Robotron,SaveKey,SNAC;",
-	"P2oAD,Port2 Input,Auto,None,Joystick,Lightgun,Paddle,Trakball,Keypad,Driving,STMouse,AmigaMouse,BoosterGrip,Robotron,SaveKey,SNAC;",
+	//LLAPI
+	//Add LLAPI option to the OSD menu, swapped NONE with LLAPI
+	//To detect LLAPI status[50] = 1 
+	//Always double check witht the bits map allocation table to avoid conflicts	
+	"P2oI,LLAPI,OFF,ON;",
+	"P2-;",
+	//END
+	"P2o69,Port1 Input,Auto,None,Joystick,Lightgun,Paddle,Trakball,Keypad,Driving,STMouse,AmigaMouse,BoosterGrip,Robotron,SNAC;",
+	"P2oAD,Port2 Input,Auto,None,Joystick,Lightgun,Paddle,Trakball,Keypad,Driving,STMouse,AmigaMouse,BoosterGrip,Robotron,SNAC;",		
 	"h1P2O5,SNAC Analog,Yes,No;",
 	"h1P2O6,Sega Phaser Mode,No,Yes;",
 	"P2oH,Swap Paddle A<->B,No,Yes;",
@@ -315,8 +331,12 @@ wire        ioctl_wr;
 wire [7:0]  ioctl_index;
 wire [21:0] gamma_bus;
 
-wire [15:0] joy0,joy1,joy2,joy3;
-wire [15:0] joya_0,joya_1,joya_2,joya_3,joyar_0,joyar_1,joyar_2,joyar_3;
+//LLAPI
+wire [15:0] usb_joy0,usb_joy1,usb_joy2,usb_joy3;
+wire [15:0] usb_joya_0,usb_joya_1,usb_joya_2,usb_joya_3,joyar_0,joyar_1,joyar_2,joyar_3;
+//wire [15:0] joy0,joy1,joy2,joy3;
+//wire [15:0] joya_0,joya_1,joya_2,joya_3,joyar_0,joyar_1,joyar_2,joyar_3;
+//END 
 wire  [7:0] pd_0,pd_1,pd_2,pd_3;
 wire        ioctl_wait;
 
@@ -347,15 +367,17 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.buttons            (buttons),
 	.forced_scandoubler (forced_scandoubler),
 	.gamma_bus          (gamma_bus),
-
-	.joystick_0         (joy0),
-	.joystick_1         (joy1),
-	.joystick_2         (joy2),
-	.joystick_3         (joy3),
-	.joystick_l_analog_0  (joya_0),
-	.joystick_l_analog_1  (joya_1),
-	.joystick_l_analog_2  (joya_2),
-	.joystick_l_analog_3  (joya_3),
+	
+	//LLAPI//added usb prefix
+	.joystick_0         (usb_joy0),
+	.joystick_1         (usb_joy1),
+	.joystick_2         (usb_joy2),
+	.joystick_3         (usb_joy3),
+	.joystick_l_analog_0  (usb_joya_0),
+	.joystick_l_analog_1  (usb_joya_1),
+	.joystick_l_analog_2  (usb_joya_2),
+	.joystick_l_analog_3  (usb_joya_3),
+	//END
 	.joystick_r_analog_0  (joyar_0),
 	.joystick_r_analog_1  (joyar_1),
 	.joystick_r_analog_2  (joyar_2),
@@ -575,6 +597,310 @@ Atari7800 main
 	.i_read       (i_read)
 );
 
+
+//////////////////   LLAPI   ///////////////////
+
+reg llapi_button_pressed, llapi_button_pressed2;
+
+//Initialise BliSTer port 1 and port 2 based on first button pressed
+always @(posedge CLK_50M) begin
+        if (reset) begin
+                llapi_button_pressed  <= 0;
+                llapi_button_pressed2 <= 0;
+        end else begin
+                if (|llapi_buttons)
+                        llapi_button_pressed  <= 1;
+                if (|llapi_buttons2)
+                        llapi_button_pressed2 <= 1;
+        end
+end
+
+// controller id is 0 if there is either an Atari controller or no controller
+// if id is 0, assume there is no controller until a button is pressed
+// also check for 255 and treat that as 'no controller' as well
+wire use_llapi  = llapi_en  && llapi_select && ((|llapi_type  && ~(&llapi_type))  || llapi_button_pressed);
+wire use_llapi2 = llapi_en2 && llapi_select && ((|llapi_type2 && ~(&llapi_type2)) || llapi_button_pressed2);
+
+wire [31:0] llapi_buttons, llapi_buttons2;
+wire [71:0] llapi_analog, llapi_analog2;
+wire [7:0]  llapi_type, llapi_type2;
+wire llapi_en, llapi_en2;
+
+wire llapi_select = status[50]; // This is the status bit from the Menu (see Menu configuration block to check what bits need to be tested)
+
+
+//Placeholder for reset and select buttons trigger and delay
+wire reset_sw = ~|timer;
+reg old_resetsw;
+reg [31:0] timer;
+
+always @(posedge clk_sys) begin
+  old_resetsw <= status[53];
+  if (status[53] && ~old_resetsw)
+    timer <= 1_000_000;
+  if (|timer)
+    timer <= timer - 1'd1;
+end
+
+wire select_sw = ~|timer1;
+reg old_selectsw;
+reg [31:0] timer1;
+
+always @(posedge clk_sys) begin
+  old_selectsw <= status[52];
+  if (status[52] && ~old_selectsw)
+    timer1 <= 1_000_000;
+  if (|timer1)
+    timer1 <= timer1 - 1'd1;
+end
+
+wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
+
+//connect the pins of USER I/O port from the I/O board to BliSTer (if LLAPI has been selected in the OSD menu)
+
+// Indexes for reference:
+// 0 = D+    = P1 Latch
+// 1 = D-    = P1 Data
+// 2 = TX-   = LLAPI Enable
+// 3 = GND_d = N/C
+// 4 = RX+   = P2 Latch
+// 5 = RX-   = P2 Data
+
+always_comb begin
+	USER_OUT = 6'b111111;
+	//LLAPI selected in OSD menu
+	if (llapi_select) begin
+		USER_OUT[0] = llapi_latch_o;
+		USER_OUT[1] = llapi_data_o;
+		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS); //This is the Red or Green LED on the BliSter
+		USER_OUT[4] = llapi_latch_o2;
+		USER_OUT[5] = llapi_data_o2;
+	end else begin
+		USER_OUT[0] = 1'b1;
+		USER_OUT[1] = 1'b1;
+	end
+end
+
+//LLAPI string configuration for port 1
+LLAPI llapi
+(
+	.CLK_50M(CLK_50M),
+	.LLAPI_SYNC(VSync),
+	.IO_LATCH_IN(USER_IN[0]),
+	.IO_LATCH_OUT(llapi_latch_o),
+	.IO_DATA_IN(USER_IN[1]),
+	.IO_DATA_OUT(llapi_data_o),
+	.ENABLE(llapi_select & ~OSD_STATUS),
+	.LLAPI_BUTTONS(llapi_buttons),
+	.LLAPI_ANALOG(llapi_analog),
+	.LLAPI_TYPE(llapi_type),
+	.LLAPI_EN(llapi_en)
+);
+
+//LLAPI string configuration for port 2
+LLAPI llapi2
+(
+	.CLK_50M(CLK_50M),
+	.LLAPI_SYNC(VSync),
+	.IO_LATCH_IN(USER_IN[4]),
+	.IO_LATCH_OUT(llapi_latch_o2),
+	.IO_DATA_IN(USER_IN[5]),
+	.IO_DATA_OUT(llapi_data_o2),
+	.ENABLE(llapi_select & ~OSD_STATUS),
+	.LLAPI_BUTTONS(llapi_buttons2),
+	.LLAPI_ANALOG(llapi_analog2),
+	.LLAPI_TYPE(llapi_type2),
+	.LLAPI_EN(llapi_en2)
+);
+
+
+// Controller string provided by core for reference (order is important)
+//Controller specific mapping based on type. More info here : https://docs.google.com/document/d/12XpxrmKYx_jgfEPyw-O2zex1kTQZZ-NSBdLO2RQPRzM/edit
+//To be checked : button ref id are HID button id - 1 ?
+
+//Mapping :  		"J,Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
+
+//Note that some games need the Game Select button to be pressed in order to start.
+//We have added a button in the OSD menu to simulate that button, this is to cover the use cases related to controllers that dont have a lot of buttons
+
+//Pivot controllers to desintermadiate the USB/SNAC controllers implementation
+wire [15:0] joya_0 = axis_ll_a;
+wire [15:0] joya_1 = axis_ll_b;
+wire [15:0] joya_2 = axis_ll_c;
+wire [15:0] joya_3 = axis_ll_d;
+
+wire [15:0] joy0 = joy_ll_a;
+wire [15:0] joy1 = joy_ll_b;
+wire [15:0] joy2 = joy_ll_c;
+wire [15:0] joy3 = joy_ll_d;
+
+//Port 1
+wire [15:0] joy_ll_a;
+wire [7:0] axis_ll_a;
+wire [15:0] joy_ll_b;
+wire [7:0] axis_ll_b;
+
+//Port 2
+wire [15:0] joy_ll_c;
+wire [7:0] axis_ll_c;
+wire [15:0] joy_ll_d;
+wire [7:0] axis_ll_d;
+
+
+//USER LED GREEN IF Paddle type detected
+/*reg MY_LED;
+
+always @(posedge clk_sys) begin
+	if (llapi_type2 == 41 || llapi_type == 41)
+		MY_LED <= 1'b1;
+	else
+		MY_LED <= 1'b0;
+end
+*/
+
+
+//TODO :
+// 4 players mode needs to be confirmed
+// Hybrid mode with USB needs to be re activated
+
+always_comb begin
+		
+	    // Mapping for generic paddle
+		if ( llapi_type == 7 || llapi_type == 30 || llapi_type == 53 || llapi_type == 61 || llapi_type == 42) begin
+       //Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
+			joy_ll_a = {
+			1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons[0], 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+			1'b0, 1'b0, 1'b0, 1'b0};			
+			axis_ll_a = llapi_analog[63:56] - 128; //Paddle axis mapped as a dial
+			axis_ll_b = 8'b00000000;
+			joy_ll_b = 16'b0000000000000000;;
+			
+		//Mapping for Atari paddle
+		end else if ( llapi_type == 41) begin
+			joy_ll_a = {
+			1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons[0], 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+			1'b0, 1'b0, 1'b0, 1'b0};
+			axis_ll_a = llapi_analog[63:56] - 128; //Atari Paddle 1 axis mapped as a dial
+			joy_ll_b = {
+			1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons[1], 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+			1'b0, 1'b0, 1'b0, 1'b0};
+			axis_ll_b = llapi_analog[55:48] - 128; //Atari Paddle 2 axis mapped as a slider
+
+		// Mapping for any other controller 
+		end else begin
+			joy_ll_a = {
+				//Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
+				1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons[4], llapi_buttons[5],llapi_buttons[6], 1'b0, llapi_buttons[1], llapi_buttons[0],
+				llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] 	// d-pad
+			};
+			axis_ll_a = llapi_analog[7:0] - 128; //Left stick  X Axis
+			axis_ll_b = 8'b00000000;
+			joy_ll_b = 16'b0000000000000000;
+
+
+		end
+end
+
+
+always_comb begin
+		
+	   // Mapping for generic paddle
+		if (llapi_type2 == 7 || llapi_type2 == 30 || llapi_type2 == 53 || llapi_type2 == 61 || llapi_type == 42) begin
+            joy_ll_c = {
+			1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons2[0], 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+			1'b0, 1'b0, 1'b0, 1'b0};			
+			axis_ll_c = llapi_analog2[63:56] - 128; //Paddle axis mapped as a dia1
+			axis_ll_d = 8'b00000000;
+			joy_ll_d = 16'b0;
+			
+		//Mapping for Atari paddle
+		end else if (llapi_type2 == 41) begin
+            joy_ll_c = {
+			1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons2[0], 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+			1'b0, 1'b0, 1'b0, 1'b0};
+			axis_ll_c = llapi_analog2[63:56] - 128; //Atari Paddle 1 axis mapped as a dial 
+			joy_ll_d = {
+			1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons2[1], 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+			1'b0, 1'b0, 1'b0, 1'b0};				
+			axis_ll_d = llapi_analog2[55:48] - 128; //Atari Paddle 2 axis mapped as a slider
+	
+		// Mapping for any other controller 
+		end else if (use_llapi2 && (llapi_type2 !== 41 && llapi_type2 !== 7 && llapi_type2 !== 30 && llapi_type2 !== 53 && llapi_type2 !== 61 && llapi_type !== 42)) begin
+       //Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
+				joy_ll_c = {
+				1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons2[4], llapi_buttons2[5],llapi_buttons2[6], 1'b0, llapi_buttons2[1], llapi_buttons2[0],
+				llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] 	// d-pad
+			};
+			axis_ll_c = llapi_analog2[7:0] - 128; //Left stick mode X Axis
+			axis_ll_d = 8'b00000000;
+			joy_ll_d = 16'b0000000000000000;
+		end else begin
+			joy_ll_c = {
+			1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons2[0], 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+			1'b0, 1'b0, 1'b0, 1'b0};
+			axis_ll_c = llapi_analog2[63:56] - 128; //Atari Paddle 1 axis mapped as a dial 
+			joy_ll_d = {
+			1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, llapi_buttons2[1], 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+			1'b0, 1'b0, 1'b0, 1'b0};				
+			axis_ll_d = llapi_analog2[55:48] - 128; //Atari Paddle 2 axis mapped as a slider
+			//axis_ll_c = 8'b00000000;
+			//joy_ll_c = 16'b0000000000000000;
+			//axis_ll_d = 8'b00000000;
+			//joy_ll_d = 16'b0000000000000000;
+		end
+end
+
+
+//Assign (DOWN + FIRST BUTTON) Combinaison to bring the OSD up - P1 and P1 ports.
+//How can I make this a long press detection?
+wire llapi_osd = (llapi_buttons[26] & llapi_buttons[5] & llapi_buttons[0]) || (llapi_buttons2[26] & llapi_buttons2[5] & llapi_buttons2[0]);
+
+
+//It looks this part is a little bit core specifc. Need to check if that could not be standardized
+// if LLAPI is enabled, shift USB controllers over to the next available player slot
+// This basically connect the console ports to the USB joysticks or to the to LLAPI ones (that have been created above)
+
+
+/*always_comb begin
+        if (use_llapi & use_llapi2) begin
+		
+				joy0 = joy_ll_a;
+				joy1 = joy_ll_b;
+				joy2 = joy_ll_c;
+				joy3 = joy_ll_d;
+
+				joya_0 = axis_ll_a;				
+				joya_1 = axis_ll_b;
+				joya_2 = axis_ll_c;
+				joya_3 = axis_ll_d;
+	
+        end else if (use_llapi ^ use_llapi2) begin
+		
+				joy0 = use_llapi ? joy_ll_a : usb_joy0;
+				joy1 = (use_llapi && (llapi_type == 41 )) ? joy_ll_b : usb_joy1;
+				joy2 = use_llapi2 ? joy_ll_c : usb_joy2;
+				joy3 = (use_llapi2 && (llapi_type2 == 41 )) ? joy_ll_d : usb_joy3;
+				
+				joya_0 = use_llapi ? axis_ll_a : usb_joya_0;				
+				joya_1 = (use_llapi && (llapi_type == 41 )) ? axis_ll_b : usb_joya_1;
+				joya_2 = use_llapi2 ? axis_ll_c : usb_joya_2;
+				joya_3 = (use_llapi2 && llapi_type2 == 41 ) ? axis_ll_d : usb_joya_3;				
+				
+        end else begin
+		
+				joy0 = usb_joy0;
+				joy1 = usb_joy1;
+				joy2 = usb_joy2;
+				joy3 = usb_joy3;
+				
+				joya_0 = usb_joya_0;
+				joya_1 = usb_joya_1;
+				joya_2 = usb_joya_2;
+				joya_3 = usb_joya_3;
+	end
+end*/
+
+////////////////////////////////////////     END OF LLAPI MAIN BLOCK   ///////////////////////////////////////////////////////////
 ////////////////////////////  MEMORY  ///////////////////////////////////
 logic [14:0] bios_mask;
 
@@ -715,7 +1041,7 @@ sdram sdram
 // 7800: Bits PB 2 & 4 are used for output to select 2 button mode.
 
 assign info_req = pad0_assigned | pad1_assigned | pad2_assigned |
-	pad3_assigned | toggle_bw | toggle_ldiff | toggle_rdiff | toggle_paddle;
+	pad3_assigned | toggle_bw | toggle_ldiff | toggle_rdiff | toggle_paddle; //, toggle_llapi_type;//LLAPI
 
 always_comb begin
 	info = 8'd0;
@@ -1087,11 +1413,15 @@ always_comb begin
 
 	is_snac0 = porta_type == snac_type;
 	is_snac1 = portb_type == snac_type;
-	USER_OUT = '1;
+//LLAPI
+		//Neutralise SNAC
+	//USER_OUT = '1;
 	if (is_snac0) begin
-		{USER_OUT[6], USER_OUT[4], USER_OUT[3], USER_OUT[5], USER_OUT[0], USER_OUT[1]} = {iout[1:0], PAout[7:4]};
+		//LLAPI
+		//Neutralise SNAC
+		//{USER_OUT[6], USER_OUT[4], USER_OUT[3], USER_OUT[5], USER_OUT[0], USER_OUT[1]} = {iout[1:0], PAout[7:4]};
 	end else if (is_snac1) begin
-		{USER_OUT[6], USER_OUT[4], USER_OUT[3], USER_OUT[5], USER_OUT[0], USER_OUT[1]} = {iout[3:2], PAout[3:0]};
+		//{USER_OUT[6], USER_OUT[4], USER_OUT[3], USER_OUT[5], USER_OUT[0], USER_OUT[1]} = {iout[3:2], PAout[3:0]};
 	end
 	porta_type = |status[41:38] ? {4'd0, status[41:38] - 1'd1} : (auto_paddle ? 2'd3 : header_type0);
 	portb_type = |status[45:42] ? {4'd0, status[45:42] - 1'd1} : (auto_paddle ? 2'd3 : header_type1);
