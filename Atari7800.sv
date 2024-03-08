@@ -244,6 +244,12 @@ parameter CONF_STR = {
 	"OC,Difficulty Right,A,B;",
 	"OD,Difficulty Left,A,B;",
 	"-;",
+	//LLAPI: OSD menu item
+	//LLAPI Always ON
+	"-,<< LLAPI enabled >>;",
+	"-,<< Use USER I/O port >>;",
+	"-;",
+	//END LLAPI	
 	"P1,Audio & Video;",
 	"P1-;",
 	"P1O23,Stereo Mix,None,25%,50%,100%;",
@@ -263,13 +269,6 @@ parameter CONF_STR = {
 	"P2OIJ,High Score Cart,Auto,On,Off;",
 	"P2O7,Swap Joysticks,No,Yes;",
 	"P2-;",
-	//LLAPI
-	//Add LLAPI option to the OSD menu, swapped NONE with LLAPI
-	//To detect LLAPI status[50] = 1 
-	//Always double check witht the bits map allocation table to avoid conflicts	
-	"P2oI,LLAPI,OFF,ON;",
-	"P2-;",
-	//END
 	"P2o69,Port1 Input,Auto,None,Joystick,Lightgun,Paddle,Trakball,Keypad,Driving,STMouse,AmigaMouse,BoosterGrip,Robotron,SNAC;",
 	"P2oAD,Port2 Input,Auto,None,Joystick,Lightgun,Paddle,Trakball,Keypad,Driving,STMouse,AmigaMouse,BoosterGrip,Robotron,SNAC;",		
 	"h1P2O5,SNAC Analog,Yes,No;",
@@ -626,7 +625,7 @@ wire [71:0] llapi_analog, llapi_analog2;
 wire [7:0]  llapi_type, llapi_type2;
 wire llapi_en, llapi_en2;
 
-wire llapi_select = status[50]; // This is the status bit from the Menu (see Menu configuration block to check what bits need to be tested)
+wire llapi_select = 1'b1;
 
 
 //Placeholder for reset and select buttons trigger and delay
