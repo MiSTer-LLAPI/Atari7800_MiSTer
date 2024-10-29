@@ -721,20 +721,6 @@ LLAPI llapi2
 //Note that some games need the Game Select button to be pressed in order to start.
 //We have added a button in the OSD menu to simulate that button, this is to cover the use cases related to controllers that dont have a lot of buttons
 
-//Pivot controllers to desintermadiate the USB/SNAC controllers implementation
-wire [15:0] joya_0 = axis_ll_a;
-wire [15:0] joy0 = joy_ll_a;
-
-wire [15:0] joya_1 = axis_ll_b;
-wire [15:0] joy1 = joy_ll_b;
-
-wire [15:0] joya_2 = joy_ll_c;
-wire [15:0] joy2 = axis_ll_c;
-
-
-wire [15:0] joya_3;
-wire [15:0] joy3;
-
 
 wire [15:0] joy_ll_a;
 wire [7:0] axis_ll_a;
@@ -742,11 +728,39 @@ wire [15:0] joy_ll_b;
 wire [7:0] axis_ll_b;
 wire [15:0] joy_ll_c;
 wire [7:0] axis_ll_c;
+wire [15:0] joy_ll_d;
+wire [7:0] axis_ll_d;
+
+//Desintermadiate USB controllers connection
+
+
+wire [15:0] joy0 = joy_ll_a;
+wire [15:0] joya_0 = axis_ll_a;
+
+wire [15:0] joy1 = joy_ll_b;
+wire [15:0] joya_1 = axis_ll_b;
+
+wire [15:0] joya_2 = joy_ll_c;
+wire [15:0] joy2 = axis_ll_c;
+
+wire [15:0] joya_3 = joy_ll_d;
+wire [15:0] joy3 = axis_ll_d;
 
 //LLAPI Port 1
-always_comb begin	
+always_comb begin
+	// Mapping for other paddles : HPD, WII_DJHERO, GEMINI, BALLY
+		if ( llapi_type == 7 || llapi_type == 68 || llapi_type == 61 || llapi_type == 42) begin
+		//Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
+			//Paddle 1
+			joy_ll_a = {
+			6'b0, llapi_buttons[0], 5'b0,
+			4'b0};
+			axis_ll_a = llapi_analog[63:56]  - 128; //all above paddles mapped as a dial
+			axis_ll_b = 8'b0;
+			joy_ll_b = 16'b0;
+	
 	//Mapping for Atari paddle
-		if ( llapi_type == 41) begin
+		end else if ( llapi_type == 41) begin
 			//Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
 			//Paddle 1
 			joy_ll_a = {
@@ -778,11 +792,44 @@ end
 //LLAPI Port 2
 //Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
 always_comb begin
-joy_ll_c = {
-	6'b0, llapi_buttons2[4], llapi_buttons2[5],llapi_buttons2[6], 1'b0, llapi_buttons2[1], llapi_buttons2[0],
-	llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] 	// d-pad
-	};
-axis_ll_c = llapi_analog2[7:0] - 128; //Left stick mode X Axis
+		
+		// Mapping for other paddles : HPD, WII_DJHERO, GEMINI, BALLY
+		if ( llapi_type2 == 7 || llapi_type2 == 68 || llapi_type2 == 61 || llapi_type2 == 42) begin
+		//Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
+			//Paddle 1
+			joy_ll_c = {
+			6'b0, llapi_buttons2[0], 5'b0,
+			4'b0};
+			axis_ll_c = llapi_analog2[63:56]  - 128; //all above paddles mapped as a dial
+			axis_ll_d = 8'b0;
+			joy_ll_d = 16'b0;
+			
+		//Mapping for Atari paddles
+		end else if ( llapi_type2 == 41) begin
+			//Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
+			//Paddle 1
+			joy_ll_c = {
+			6'b0, llapi_buttons2[0], 5'b0,
+			4'b0};
+			axis_ll_c = llapi_analog2[63:56]  - 127; //Atari Paddle 1 axis mapped as a dial
+			//Read the list from the end : "Fire1,Fire2,Pause/B&W,Select,Reset(Start),Paddle Button,Diff L,Diff R,Halt;",
+			
+			//Paddle 2
+			joy_ll_d = {
+			6'b0, llapi_buttons2[1], 5'b00,
+			1'b0, 1'b0, 1'b0, 1'b0};
+			axis_ll_d = llapi_analog2[55:48] - 127; //Atari Paddle 2 axis mapped as a slider
+		
+		// Mapping for any other controller 
+		end else begin
+			joy_ll_c = {
+				6'b0, llapi_buttons2[4], llapi_buttons2[5],llapi_buttons2[6], 1'b0, llapi_buttons2[1], llapi_buttons2[0],
+				llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] 	// d-pad
+			};
+			axis_ll_c = llapi_analog2[7:0] - 128; //Left stick mode X Axis
+			axis_ll_d = 8'b0;
+			joy_ll_d = 16'b0;
+		end
 end		
 	
 
